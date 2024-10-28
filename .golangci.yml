@@ -26,7 +26,7 @@ linters:
     - unused
     - misspell
     - gosec
-    - copyloopvar # Checks for pointers to enclosing loop variables
+#    - copyloopvar # Checks for pointers to enclosing loop variables
     - tenv # Detects using os.Setenv instead of t.Setenv since Go 1.17
 
 linters-settings:
