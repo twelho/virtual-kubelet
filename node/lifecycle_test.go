@@ -58,7 +58,7 @@ type fakeDiscardingRecorder struct {
 }
 
 func (r *fakeDiscardingRecorder) Event(object runtime.Object, eventType, reason, message string) {
-	r.Eventf(object, eventType, reason, message)
+	r.Eventf(object, eventType, reason, message) // nolint: govet
 }
 
 func (r *fakeDiscardingRecorder) Eventf(object runtime.Object, eventType, reason, messageFmt string, args ...interface{}) {
