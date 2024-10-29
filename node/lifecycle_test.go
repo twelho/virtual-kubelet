@@ -247,7 +247,7 @@ func wireUpSystem(ctx context.Context, provider PodLifecycleHandler, f testFunct
 	defer cancel()
 
 	// Create the fake client.
-	client := fake.NewSimpleClientset()
+	client := fake.NewClientset()
 
 	client.PrependReactor("update", "pods", func(action ktesting.Action) (handled bool, ret runtime.Object, err error) {
 		var pod *corev1.Pod
@@ -337,7 +337,7 @@ func testTerminalStatePodScenario(ctx context.Context, t *testing.T, s *system, 
 	p1 := newPod()
 	p1.Status.Phase = state
 	// Create the Pod
-	_, e := s.client.CoreV1().Pods(testNamespace).Create(ctx, p1, metav1.CreateOptions{})
+	p1, e := s.client.CoreV1().Pods(testNamespace).Create(ctx, p1, metav1.CreateOptions{})
 	assert.NilError(t, e)
 
 	// Start the pod controller
