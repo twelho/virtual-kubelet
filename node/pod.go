@@ -201,7 +201,9 @@ func shouldSkipPodStatusUpdate(pod *corev1.Pod) bool {
 }
 
 func (pc *PodController) updatePodStatus(ctx context.Context, podFromKubernetes *corev1.Pod, key string) error {
+	fmt.Println("VK debug: updatePodStatus")
 	if shouldSkipPodStatusUpdate(podFromKubernetes) {
+		fmt.Println("VK debug: UPDATE SKIPPED!")
 		return nil
 	}
 
@@ -221,6 +223,7 @@ func (pc *PodController) updatePodStatus(ctx context.Context, podFromKubernetes 
 	// Pod deleted by provider due some reasons. e.g. a K8s provider, pod created by deployment would be evicted when node is not ready.
 	// If we do not delete pod in K8s, deployment would not create a new one.
 	if podFromProvider.DeletionTimestamp != nil && podFromKubernetes.DeletionTimestamp == nil {
+		fmt.Println("VK debug: ENTERED DELETION MAGIC!")
 		deleteOptions := metav1.DeleteOptions{
 			GracePeriodSeconds: podFromProvider.DeletionGracePeriodSeconds,
 		}
@@ -242,10 +245,13 @@ func (pc *PodController) updatePodStatus(ctx context.Context, podFromKubernetes 
 	// the pod status, and we should be the sole writers of the pod status, we can blind overwrite it. Therefore
 	// we need to copy the pod and set ResourceVersion to 0.
 	podFromProvider.ResourceVersion = "0"
+	fmt.Println("VK debug: DO THE UPDATE!")
 	if _, err := pc.client.Pods(podFromKubernetes.Namespace).UpdateStatus(ctx, podFromProvider, metav1.UpdateOptions{}); err != nil && !errors.IsNotFound(err) {
 		span.SetStatus(err)
+		fmt.Printf("VK debug: IT FAILED: %v\n", err)
 		return pkgerrors.Wrap(err, "error while updating pod status in kubernetes")
 	}
+	fmt.Println("VK debug: IT SUCCEEDED!")
 
 	log.G(ctx).WithFields(log.Fields{
 		"new phase":  string(podFromProvider.Status.Phase),
@@ -260,6 +266,8 @@ func (pc *PodController) updatePodStatus(ctx context.Context, podFromKubernetes 
 // enqueuePodStatusUpdate updates our pod status map, and marks the pod as dirty in the workqueue. The pod must be DeepCopy'd
 // prior to enqueuePodStatusUpdate.
 func (pc *PodController) enqueuePodStatusUpdate(ctx context.Context, pod *corev1.Pod) {
+	fmt.Println("VK debug: enqueuePodStatusUpdate entered")
+
 	ctx, cancel := context.WithTimeout(ctx, notificationRetryPeriod*queue.MaxRetries)
 	defer cancel()
 
@@ -273,12 +281,14 @@ func (pc *PodController) enqueuePodStatusUpdate(ctx context.Context, pod *corev1
 	if err != nil {
 		log.G(ctx).WithError(err).Error("Error getting pod meta namespace key")
 		span.SetStatus(err)
+		fmt.Println("VK debug: Error getting pod meta namespace key")
 		return
 	}
 	ctx = span.WithField(ctx, "key", key)
 
 	var obj interface{}
 	err = wait.PollUntilContextCancel(ctx, notificationRetryPeriod, true, func(ctx context.Context) (bool, error) {
+		fmt.Println("VK debug: PollUntilContextCancel")
 		var ok bool
 		obj, ok = pc.knownPods.Load(key)
 		if ok {
@@ -306,6 +316,8 @@ func (pc *PodController) enqueuePodStatusUpdate(ctx context.Context, pod *corev1
 		return false, nil
 	})
 
+	fmt.Println("VK debug: PollUntilContextCancel done")
+
 	if err != nil {
 		if errors.IsNotFound(err) {
 			err = fmt.Errorf("Pod %q not found in pod lister: %w", key, err)
@@ -314,19 +326,23 @@ func (pc *PodController) enqueuePodStatusUpdate(ctx context.Context, pod *corev1
 			log.G(ctx).WithError(err).Warn("Not enqueuing pod status update due to error from pod lister")
 		}
 		span.SetStatus(err)
+		fmt.Println("VK debug: PollUntilContextCancel error")
 		return
 	}
 
+	fmt.Println("VK debug: knownPod magic")
 	kpod := obj.(*knownPod)
 	kpod.Lock()
 	if cmp.Equal(kpod.lastPodStatusReceivedFromProvider, pod) {
 		kpod.lastPodStatusUpdateSkipped = true
 		kpod.Unlock()
+		fmt.Println("VK debug: knownPod determined up to date, skipping update")
 		return
 	}
 	kpod.lastPodStatusUpdateSkipped = false
 	kpod.lastPodStatusReceivedFromProvider = pod
 	kpod.Unlock()
+	fmt.Println("VK debug: syncPodStatusFromProvider performing enqueue")
 	pc.syncPodStatusFromProvider.Enqueue(ctx, key)
 }
 
@@ -334,11 +350,16 @@ func (pc *PodController) syncPodStatusFromProviderHandler(ctx context.Context, k
 	ctx, span := trace.StartSpan(ctx, "syncPodStatusFromProviderHandler")
 	defer span.End()
 
+	fmt.Println("VK debug: syncPodStatusFromProviderHandler")
+
 	ctx = span.WithField(ctx, "key", key)
 	log.G(ctx).Debug("processing pod status update")
 	defer func() {
+		fmt.Printf("VK debug: ENTER THE DEFER, retErr = %v\n", retErr)
+
 		span.SetStatus(retErr)
 		if retErr != nil {
+			fmt.Printf("VK debug: SHOULD BE LOGGING NOW! = %v\n", retErr)
 			log.G(ctx).WithError(retErr).Error("Error processing pod status update")
 		}
 	}()
@@ -349,6 +370,7 @@ func (pc *PodController) syncPodStatusFromProviderHandler(ctx context.Context, k
 	}
 
 	pod, err := pc.podsLister.Pods(namespace).Get(name)
+	fmt.Printf("VK debug: get the pod, err = %v\n", err)
 	if err != nil {
 		if errors.IsNotFound(err) {
 			log.G(ctx).WithError(err).Debug("Skipping pod status update for pod missing in Kubernetes")

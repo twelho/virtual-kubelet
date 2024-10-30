@@ -179,6 +179,8 @@ func (q *Queue) insert(ctx context.Context, key string, ratelimit bool, delay *t
 		ctx = span.WithField(ctx, "delay", delay.String())
 	}
 
+	fmt.Println("VK debug: queue insert")
+
 	defer func() {
 		select {
 		case q.wakeupCh <- struct{}{}:
@@ -202,6 +204,8 @@ func (q *Queue) insert(ctx context.Context, key string, ratelimit bool, delay *t
 		return item
 	}
 
+	fmt.Println("VK debug: item is not already being processed")
+
 	// Is the item already in the queue?
 	if item, ok := q.itemsInQueue[key]; ok {
 		span.WithField(ctx, "status", "itemsInQueue")
@@ -210,6 +214,8 @@ func (q *Queue) insert(ctx context.Context, key string, ratelimit bool, delay *t
 		q.adjustPosition(qi, item, when)
 		return qi
 	}
+
+	fmt.Println("VK debug: item was not already in the queue")
 
 	span.WithField(ctx, "status", "added")
 	now := q.clock.Now()
@@ -239,6 +245,8 @@ func (q *Queue) insert(ctx context.Context, key string, ratelimit bool, delay *t
 			return val
 		}
 	}
+
+	fmt.Println("VK debug: q.items.PushFront")
 
 	q.itemsInQueue[key] = q.items.PushFront(val)
 	return val
@@ -343,24 +351,32 @@ func (q *Queue) Run(ctx context.Context, workers int) {
 }
 
 func (q *Queue) worker(ctx context.Context, i int) {
+	fmt.Printf("VK debug: spawning worker ctx = %v\n", ctx)
 	ctx = log.WithLogger(ctx, log.G(ctx).WithFields(map[string]interface{}{
 		"workerId": i,
 		"queue":    q.name,
 	}))
+	fmt.Printf("VK debug: worker updated ctx = %v\n", ctx)
 	for q.handleQueueItem(ctx) {
 	}
 }
 
 func (q *Queue) getNextItem(ctx context.Context) (*queueItem, error) {
+	fmt.Println("VK debug: getNextItem")
+
 	if err := q.waitForNextItemSemaphore.Acquire(ctx, 1); err != nil {
 		return nil, err
 	}
 	defer q.waitForNextItemSemaphore.Release(1)
 
+	fmt.Println("VK debug: acquired semaphore")
+
 	for {
 		q.lock.Lock()
 		element := q.items.Front()
+		fmt.Println("VK debug: q.items.Front (getter)")
 		if element == nil {
+			fmt.Println("VK debug: it was empty")
 			// Wait for the next item
 			q.lock.Unlock()
 			select {
@@ -368,9 +384,13 @@ func (q *Queue) getNextItem(ctx context.Context) (*queueItem, error) {
 				return nil, ctx.Err()
 			case <-q.wakeupCh:
 			}
+			fmt.Println("VK debug: next item arrived")
 		} else {
+			fmt.Println("VK debug: it was not empty")
 			qi := element.Value.(*queueItem)
 			timeUntilProcessing := time.Until(qi.plannedToStartWorkAt)
+
+			fmt.Printf("VK debug: timeUntilProcessing: %s\n", timeUntilProcessing.String())
 
 			// Do we need to sleep? If not, let's party.
 			if timeUntilProcessing <= 0 {
@@ -403,14 +423,19 @@ func (q *Queue) getNextItem(ctx context.Context) (*queueItem, error) {
 //
 // A return value of "false" indicates that further processing should be stopped.
 func (q *Queue) handleQueueItem(ctx context.Context) bool {
+	fmt.Printf("VK debug: handleQueueItem: ctx = %v\n", ctx)
 	ctx, span := trace.StartSpan(ctx, "handleQueueItem")
 	defer span.End()
+
+	fmt.Println("VK debug: handleQueueItem")
 
 	qi, err := q.getNextItem(ctx)
 	if err != nil {
 		span.SetStatus(err)
 		return false
 	}
+
+	fmt.Printf("VK debug: we have an item: %v\n", qi)
 
 	// We expect strings to come off the work Queue.
 	// These are of the form namespace/name.
@@ -432,6 +457,8 @@ func (q *Queue) handleQueueItem(ctx context.Context) bool {
 }
 
 func (q *Queue) handleQueueItemObject(ctx context.Context, qi *queueItem) error {
+	fmt.Println("VK debug: handleQueueItemObject")
+
 	// This is a separate function / span, because the handleQueueItem span is the time spent waiting for the object
 	// plus the time spend handling the object. Instead, this function / span is scoped to a single object.
 	ctx, span := trace.StartSpan(ctx, "handleQueueItemObject")
@@ -451,6 +478,7 @@ func (q *Queue) handleQueueItemObject(ctx context.Context, qi *queueItem) error 
 	// Add the current key as an attribute to the current span.
 	ctx = span.WithField(ctx, "key", qi.key)
 	// Run the syncHandler, passing it the namespace/name string of the Pod resource to be synced.
+	fmt.Println("VK debug: RUNNING THE HANDLER")
 	err := q.handler(ctx, qi.key)
 
 	q.lock.Lock()

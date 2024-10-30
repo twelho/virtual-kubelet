@@ -421,7 +421,9 @@ func (pc *PodController) Run(ctx context.Context, podSyncWorkers int) (retErr er
 		pc.deletePodsFromKubernetes.Run(ctx, podSyncWorkers)
 	})
 	group.StartWithContext(ctx, func(ctx context.Context) {
+		fmt.Printf("VK debug: running syncPodStatusFromProvider with %d worker(s)\n", podSyncWorkers)
 		pc.syncPodStatusFromProvider.Run(ctx, podSyncWorkers)
+		fmt.Println("VK debug: syncPodStatusFromProvider runner exited")
 	})
 	defer group.Wait()
 	log.G(ctx).Info("started workers")

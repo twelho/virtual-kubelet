@@ -56,8 +56,12 @@ func StartSpan(ctx context.Context, name string) (context.Context, Span) {
 		tracer = T
 	}
 
+	// TODO: This is what overrides the logger
 	ctx, span := tracer.StartSpan(ctx, name)
-	ctx = log.WithLogger(ctx, span.Logger())
+	logger := span.Logger()
+	if logger != nil {
+		ctx = log.WithLogger(ctx, span.Logger())
+	}
 	return ctx, span
 }
 

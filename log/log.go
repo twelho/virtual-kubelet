@@ -22,6 +22,7 @@ package log
 
 import (
 	"context"
+	"fmt"
 )
 
 var (
@@ -65,6 +66,10 @@ type Fields map[string]interface{}
 // WithLogger returns a new context with the provided logger. Use in
 // combination with logger.WithField(s) for great effect.
 func WithLogger(ctx context.Context, logger Logger) context.Context {
+	fmt.Printf("VK debug: WithLogger INVOKED! ctx = %v, logger = %v\n", ctx, logger)
+	if logger == nil {
+		panic("nil logger provided")
+	}
 	return context.WithValue(ctx, loggerKey{}, logger)
 }
 
@@ -74,11 +79,14 @@ func GetLogger(ctx context.Context) Logger {
 	logger := ctx.Value(loggerKey{})
 
 	if logger == nil {
+		fmt.Println("VK debug: USING DEFAULT LOGGER")
+		panic("USED DEFAULT LOGGER, SOMETHING WENT WRONG!")
 		if L == nil {
 			panic("default logger not initialized")
 		}
 		return L
 	}
 
+	fmt.Println("VK debug: FOUND THE LOGGER")
 	return logger.(Logger)
 }
